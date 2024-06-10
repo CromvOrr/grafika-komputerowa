@@ -5,10 +5,11 @@
     <title>My test page</title>
     <link href="styles.css" rel="stylesheet" />
   </head>
-  <body onload="Triangle();">
+  <body onload="Draw();">
     <canvas id="main-canvas" width="800" height="600"></canvas>
-    <div id="main-button">Change colors!</div>
   </body>
+  <img id="main-texture" src="fade.png" hidden />
   <script src="https://cdn.jsdelivr.net/npm/gl-matrix@3/gl-matrix.js"></script>
+  <script src="webgl-obj-loader.js"></script>
   <script src="script.js"></script>
 </html>

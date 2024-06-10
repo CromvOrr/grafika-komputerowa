@@ -6,12 +6,15 @@ const vertexShaderTxt = `
     uniform mat4 mProjection;
 
     attribute vec3 vertPosition;
-    attribute vec3 vertColor;
+    attribute vec2 textureCoord;
+    attribute vec3 vertNormal;
 
-    varying vec3 fragColor;
+    varying vec2 fragTextureCoord;
+    varying vec3 fragNormal;
  
     void main() {
-        fragColor = vertColor;
+        fragTextureCoord = textureCoord;
+        fragNormal = (mWorld * vec4(vertNormal, 0.0)).xyz;
         gl_Position = mProjection * mView * mWorld * vec4(vertPosition, 1.0);
     }
 `;
@@ -19,16 +22,34 @@ const vertexShaderTxt = `
 const fragmentShaderTxt = `
     precision mediump float;
 
-    varying vec3 fragColor;
+    varying vec2 fragTextureCoord;
+    varying vec3 fragNormal;
+
+    uniform vec3 ambient;
+    uniform vec3 lightDirection;
+    uniform vec3 lightColor;
+
+    uniform sampler2D sampler;
 
     void main() {
-        gl_FragColor = vec4(fragColor, 1.0);
+        vec3 normFragNormal = normalize(fragNormal);
+        vec3 normLightDirection = normalize(lightDirection);
+        vec3 light = ambient + lightColor * max(dot(normFragNormal, normLightDirection), 0.0);
+
+        vec4 tex = texture2D(sampler, fragTextureCoord);
+        gl_FragColor = vec4(tex.rgb * light, tex.a);
     }
 `;
 
 const mat4 = glMatrix.mat4;
 
-const Triangle = function () {
+function Draw() {
+    OBJ.downloadMeshes({
+        'box': 'a-box.obj'
+    }, Triangle);
+}
+
+const Triangle = function (meshes) {
     const canvas = document.getElementById('main-canvas');
     const gl = canvas.getContext('webgl');
     let canvasColor = [0.976, 0.976, 0.976];
@@ -36,7 +57,7 @@ const Triangle = function () {
     checkGl(gl);
 
     gl.clearColor(...canvasColor, 1.0); // R, G, B, A
-    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     gl.enable(gl.DEPTH_TEST);
     gl.enable(gl.CULL_FACE);
 
@@ -64,84 +85,62 @@ const Triangle = function () {
 
     gl.validateProgram(program);
 
-    let boxVerts = [
-        // X, Y, Z
-        -1.0, 1.0, -1.0,    // 0
-        -1.0, 1.0, 1.0,     // 1
-        1.0, 1.0, 1.0,      // 2
-        1.0, 1.0, -1.0,     // 3
-        -1.0, -1.0, -1.0,   // 4
-        -1.0, -1.0, 1.0,    // 5
-        1.0, -1.0, 1.0,     // 6
-        1.0, -1.0, -1.0,    // 7 
-    ];
+    OBJ.initMeshBuffers(gl, meshes.box);
 
-    let boxIndices = [
-        // Top
-        0, 1, 2,
-        0, 2, 3,
-        // Left
-        5, 1, 4,
-        4, 1, 0,
-        // Right
-        2, 6, 7,
-        2, 7, 3,
-        // Front
-        6, 2, 5,
-        1, 5, 2,
-        // Back
-        3, 7, 4,
-        3, 4, 0,
-        // Bottom
-        5, 4, 6,
-        6, 4, 7
-    ];
-
-    let colors = [
-        // R, G, B
-        0.3, 0.3, 1.0,
-        0.0, 1.0, 0.0,
-        0.0, 1.0, 1.0,
-        0.0, 1.0, 1.0,
-        1.0, 0.0, 1.0,
-        1.0, 0.0, 1.0,
-        0.0, 1.0, 0.0,
-        0.0, 1.0, 0.0
-    ];
-
-    const boxVertBuffer = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, boxVertBuffer);
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(boxVerts), gl.STATIC_DRAW);
-
-    const boxIndiciesBuffer = gl.createBuffer();
-    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, boxIndiciesBuffer);
-    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(boxIndices), gl.STATIC_DRAW);
+    gl.bindBuffer(gl.ARRAY_BUFFER, meshes.box.vertexBuffer);
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, meshes.box.indexBuffer);
 
     const posAttribLocation = gl.getAttribLocation(program, 'vertPosition');
     gl.vertexAttribPointer(
         posAttribLocation,
-        3,
+        meshes.box.vertexBuffer.itemSize,
         gl.FLOAT,
         gl.FALSE,
-        3 * Float32Array.BYTES_PER_ELEMENT,
+        0,
         0
     );
     gl.enableVertexAttribArray(posAttribLocation);
 
-    const triangleColorBuffer = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, triangleColorBuffer);
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(colors), gl.STATIC_DRAW);
+    gl.bindBuffer(gl.ARRAY_BUFFER, meshes.box.textureBuffer);
 
-    const colorAttribLocation = gl.getAttribLocation(program, 'vertColor');
+    const textureLocation = gl.getAttribLocation(program, 'textureCoord');
     gl.vertexAttribPointer(
-        colorAttribLocation,
-        3,
+        textureLocation,
+        meshes.box.textureBuffer.itemSize,
         gl.FLOAT,
         gl.FALSE,
-        3 * Float32Array.BYTES_PER_ELEMENT,
+        0,
         0
     );
-    gl.enableVertexAttribArray(colorAttribLocation);
+    gl.enableVertexAttribArray(textureLocation);
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, meshes.box.normalBuffer);
+    const normalLocation = gl.getAttribLocation(program, 'vertNormal');
+    gl.vertexAttribPointer(
+        normalLocation,
+        meshes.box.normalBuffer.itemSize,
+        gl.FLOAT,
+        gl.TRUE,
+        0,
+        0
+    );
+    gl.enableVertexAttribArray(normalLocation);
+
+    const img = document.getElementById('main-texture');
+    const boxTexture = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, boxTexture);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texImage2D(
+        gl.TEXTURE_2D,
+        0,
+        gl.RGBA,
+        gl.RGBA,
+        gl.UNSIGNED_BYTE,
+        img
+    );
 
     gl.useProgram(program);
 
@@ -149,89 +148,74 @@ const Triangle = function () {
     const viewMatLoc = gl.getUniformLocation(program, 'mView');
     const projectionMatLoc = gl.getUniformLocation(program, 'mProjection');
 
+    let directions = {
+        w: false,
+        a: false,
+        s: false,
+        d: false
+    };
+
+    addEventListener('keydown', (event) => {
+        directions[event.key] = true;
+    });
+    addEventListener('keyup', (event) => {
+        directions[event.key] = false;
+    });
+
     const worldMatrix = mat4.create();
     const viewMatrix = mat4.create();
-    mat4.lookAt(viewMatrix, [0, 0, -4], [0, 0, 0], [0, 1, 0]);
+    mat4.lookAt(viewMatrix, [0, 0, -17], [0, 0, 0], [0, 1, 0]);
 
     const projectionMatrix = mat4.create();
-    mat4.perspective(projectionMatrix, glMatrix.glMatrix.toRadian(60), canvas.width / canvas.height, 1, 10);
+    mat4.perspective(projectionMatrix, glMatrix.glMatrix.toRadian(60), canvas.width / canvas.height, 1, 100);
 
     gl.uniformMatrix4fv(worldMatLoc, gl.FALSE, worldMatrix);
     gl.uniformMatrix4fv(viewMatLoc, gl.FALSE, viewMatrix);
     gl.uniformMatrix4fv(projectionMatLoc, gl.FALSE, projectionMatrix);
 
+    let ambientLightLoc = gl.getUniformLocation(program, 'ambient');
+    let lightDirectionLoc = gl.getUniformLocation(program, 'lightDirection');
+    let lightColorLoc = gl.getUniformLocation(program, 'lightColor');
+
+    let ambientColor = [1.0, 1.0, 1.0];
+    gl.uniform3f(ambientLightLoc, ...ambientColor);
+    gl.uniform3f(lightDirectionLoc, 1.0, 1.0, -1.0);
+    gl.uniform3f(lightColorLoc, 1.0, 1.0, 1.0);
+
     const identityMat = mat4.create();
-
-    const changeBoxColor = function (newColors) {
-        colors = newColors;
-        gl.bindBuffer(gl.ARRAY_BUFFER, triangleColorBuffer);
-        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(colors), gl.STATIC_DRAW);
-    };
-
-    let clikcs = 0;
-    const clickHandler = document.getElementById('main-button');
-    clickHandler.addEventListener('click', function () {
-        clikcs++;
-        if (clikcs % 2 === 0) {
-            changeBoxColor([
-                0.3, 0.3, 1.0,
-                0.0, 1.0, 0.0,
-                0.0, 1.0, 1.0,
-                0.0, 1.0, 1.0,
-                1.0, 0.0, 1.0,
-                1.0, 0.0, 1.0,
-                0.0, 1.0, 0.0,
-                0.0, 1.0, 0.0
-            ]);
-        } else {
-            changeBoxColor([
-                1.0, 0.3, 0.3,
-                1.0, 0.0, 1.0,
-                1.0, 1.0, 0.0,
-                1.0, 1.0, 0.0,
-                1.0, 0.0, 0.0,
-                1.0, 0.0, 0.0,
-                1.0, 0.0, 1.0,
-                1.0, 0.0, 1.0
-            ]);
-        }
-    });
-
-    const bindNewBuffer = function (buffer) {
-        gl.bindBuffer(gl.ARRAY_BUFFER, boxVertBuffer);
-        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(buffer), gl.STATIC_DRAW);
-    };
-
-    const generateBox = function ([x, y, z], s, speed = 23, rotation = [1, 1, -0.5]) {
-        let newBoxVerts = [
-            -1.0, 1.0, -1.0,
-            -1.0, 1.0, 1.0,
-            1.0, 1.0, 1.0,
-            1.0, 1.0, -1.0,
-            -1.0, -1.0, -1.0,
-            -1.0, -1.0, 1.0,
-            1.0, -1.0, 1.0,
-            1.0, -1.0, -1.0,
-        ];
-
-        let angle = performance.now() / 1000 / 60 * speed * Math.PI;
-        newBoxVerts = newBoxVerts.map((v) => v * s);
-
-        mat4.translate(worldMatrix, identityMat, [x, y, z]);
-        mat4.rotate(worldMatrix, worldMatrix, angle, rotation);
-
-        bindNewBuffer(newBoxVerts);
-        gl.uniformMatrix4fv(worldMatLoc, gl.FALSE, worldMatrix);
-        gl.drawElements(gl.TRIANGLES, boxIndices.length, gl.UNSIGNED_SHORT, 0);
-    };
+    let angle = 0;
+    const speed = 0.5;
+    let cameraLoc = [0, 0, -17];
 
     const loop = function () {
+        angle = performance.now() / 1000 / 60 * 27 * Math.PI;
+        mat4.translate(worldMatrix, identityMat, [0, 1, 0]);
+        mat4.rotate(worldMatrix, worldMatrix, angle, [0, 1, 0]);
+        gl.uniformMatrix4fv(worldMatLoc, gl.FALSE, worldMatrix);
+
         gl.clearColor(...canvasColor, 1.0);
         gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
-        generateBox([2.5, 1.8, 0], 0.2, 70, [0, 1, 0]);
-        generateBox([0.5, 0, 0], 0.7);
-        generateBox([-2, -1.4, 0], 0.4, 90, [1, 0, 0]);
+        gl.bindTexture(gl.TEXTURE_2D, boxTexture);
+        gl.activeTexture(gl.TEXTURE0);
+
+        if (directions.w) {
+            cameraLoc[2] -= speed;
+        }
+        if (directions.a) {
+            cameraLoc[0] -= speed;
+        }
+        if (directions.s) {
+            cameraLoc[2] += speed;
+        }
+        if (directions.d) {
+            cameraLoc[0] += speed;
+        }
+
+        mat4.lookAt(viewMatrix, cameraLoc, [cameraLoc[0], cameraLoc[1], cameraLoc[2] + 17], [0, 1, 0]);
+        gl.uniformMatrix4fv(viewMatLoc, gl.FALSE, viewMatrix);
+
+        gl.drawElements(gl.TRIANGLES, meshes.box.indexBuffer.numItems, gl.UNSIGNED_SHORT, 0);
 
         requestAnimationFrame(loop);
     };
